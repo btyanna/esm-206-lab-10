@@ -40,7 +40,16 @@ Compiled World Bank data, accessed from: https://www.kaggle.com/zanderventer/env
 
 ```{r env_corr}
 
+# reading csv
+env_var = read_csv("world_env_vars.csv") %>% 
+  na.omit
 
+# calculate Pearson's r for correlations from column 2-28
+cor_df = cor(env_var[2:28])
+
+# Make a correlation matrix... ellipse shows the dirctionality
+# tl.col = text color, tl.cex = text size
+corrplot(cor_df, type = "upper", method = "ellipse", tl.col = "navy blue", tl.cex = 0.5)
 
 ```
 
@@ -55,6 +64,12 @@ We'll use 'family = binomial' to run binomial logistic regression...otherwise, t
 a. Read in the DonnerTable.csv file as DonnerTable
 
 ```{r donner_data}
+# What effect did age and sex have on the survival rate of the donner party?
+
+# read csv
+donnertable = read_csv("DonnerTable.csv")
+# outcome of 1 = survival; 0 = death D:
+# 0 = yes, 1 = no????
 
 ```
 
@@ -62,6 +77,11 @@ b. Binomial logistic regression
 
 ```{r blr}
 
+# family = binomial... depends on equation wanted!
+# in log odds
+donnerblr = glm(Outcome ~ Sex + Age, family = "binomial", data = donnertable)
+summary(donnerblr)
+# shows that males and higher age had worse survival rate, but know tha tthis is WRONG!!
 ```
 
 c. Use the model to answer: What are the log odds of survival for a 5 year-old female? The probability of survival?
@@ -70,21 +90,24 @@ c. Use the model to answer: What are the log odds of survival for a 5 year-old f
 
 # 1. Create a data frame with variables Sex and Age, containing data "Female" and 5, respectively: 
 
-
+f5 = data.frame(Sex = "Female", Age = 5)
 
 # 2. Find the log odds of survival for the new data (5 year old female) using predict() function with type = "link":
 
-
+f5_logodds = predict(donnerblr, newdata = f5, type = "link")
+f5_logodds #1.444...
 
 # 3. Exponentiate the log odds to find ODDS of survival for a 5 year old female:
 
-
+f5_odds = exp(f5_logodds)
+f5_odds # the odds of survival for a 5 year old female is 4:1... thus probabilty is 80%.
 
 # Ask: Could we manually find the probability of survival for a 5-year old female? recall: p/(1-p) = ODDS
 
 # 4. Actually, let's just use type = "response" in the predict function, which converts to a probability for us:
 
-
+f5_prob = predict(donnerblr, newdata = f5, type = "response")
+f5_prob # 80.90%
 
 ```
 
@@ -96,8 +119,8 @@ d. What is the probability of survival for a 25 year-old male?
 
 m_25 <- data.frame(Sex = "Male", Age = 25) # Make a new data frame
 
-m_25_prob <- predict(donner_blr, newdata = m_25, type = "response") # Find probability of survival
-m_25_prob
+m_25_prob <- predict(donnerblr, newdata = m_25, type = "response") # Find probability of survival
+m_25_prob # only 42.67% survival rate
 
 ```
 
@@ -122,12 +145,14 @@ f. Now that we have new data to put into our model to have it make predictions, 
 
 ```{r donner_predict}
 
-# Find probabilities using predict (with type = "response"). Include SE.
+# Find probabilities using predict (with type = "response"). Include SE (error bars)
 
+predicted_probs = predict(donnerblr, newdata = donner_newdata, type = "response", se.fit = TRUE)
 
 # Coerce outcome into data frame. 
 
-
+graphdata = data.frame(donner_newdata, predicted_probs$fit, predicted_probs$se.fit)
+colnames(graphdata) = c("Age", "Sex", "Probability", "SE")
 
 ```
 
@@ -135,6 +160,9 @@ g. Graph results.
 
 ```{r donner_graph}
 
+ggplot(graphdata, aes(x = Age, y = Probability)) +
+  geom_line(aes(color = Sex)) + 
+  geom_ribbon(aes(ymin= Probability - SE, ymax = Probability + SE, fill = Sex, alpha = 0.3))
   
 ```
 
@@ -144,28 +172,41 @@ g. Graph results.
 a. Read in multiple solar irradiation files (for SB (CA), Hilo (HI), and Fairbanks (AK)):
 ```{r solar_data}
 
-
-
+# adding csv files all together :O match anything that begins with solar_radiation
+sifull = list.files(pattern = "solar_irradiation_*") %>% 
+  map_df(~read_csv(.)) %>% # "." means the line before
+  clean_names() #cleaning column names
 
 ```
 
 b. Wrangle the data
 ```{r wrangle_solar}
 
-
+solartidy = sifull %>% 
+  rename(sol_rad = etr_wh_m_2, date = yyyy_mm_dd, time = hh_mm_lst) %>% # renaming columns
+  filter(time != "NA") %>% # taking NA values out of time coolumn
+  mutate(site = fct_relevel(site, "Hawaii", "Santa Barbara", "Alaska"))
 
 ```
 
 c. Use lubridate() functions to convert to times/dates
 ```{r date_time}
 
+# take this column, reorganize dates as mdy, and then put it back into the column
+solartidy$date = mdy(solartidy$date)
+solartidy$time = hms(solartidy$time)
 
 ```
 
 d. Make an awesome figure of solar irradiation (heat/tile map)
 ```{r solar_graph}
 
-
+solargg = ggplot(solartidy, aes(x = date, y = time)) +
+  geom_tile(aes(fill = sol_rad)) + 
+  scale_fill_gradientn(colors = c("royalblue2", "mediumorchid1", "orange", "yellow")) +  # endless amount of colors to add to maunally made gradient scale
+  scale_y_time() +
+  facet_wrap(~site, ncol = 1)
+solargg
 
 ```
 
@@ -175,7 +216,14 @@ d. Make an awesome figure of solar irradiation (heat/tile map)
 a. Get the data, and do some wrangling:
 ```{r aqua_data}
 
+aq_df = read_csv("aq_wb.csv")
 
+aq_tidy = aq_df %>% 
+  filter(country == "Brazil" | country == "Chile" | country == "Ecuador" | country == "United States") %>% 
+  gather(year, aq_prod, `1960`:`2016`) %>% 
+  filter(year >= 1990) %>% 
+  mutate(aq_mil = aq_prod/1000000) %>% 
+  select(country, year, aq_mil)
 ```
 
 
@@ -183,12 +231,20 @@ b. Read in the fish.png as 'fish'
 
 ```{r fish_image}
 
+fish = "fish.png"
 
 ```
 
 c. Make a graph...with gganimate!
 ```{r gganimate_fish}
 
+aqplot = ggplot(aq_tidy, aes(x = as.numeric(year), y = aq_mil, group = country)) +
+  geom_line(aes(color = country)) +
+  geom_image(aes(image = fish)) + 
+  geom_text(aes(label = country, color = country), position = position_nudge(y = 0.04, x = 1), size = 5)
+ # + transition_reveal(country, as.numeric(year)) # need to have gganimate (can't install this)
+
+aqplot
 
 ```
 
